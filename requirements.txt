@@ -1,0 +1,6 @@
+streamlit
+openai
+pandas
+faiss-cpu
+langchain>=0.1.14
+tqdm
