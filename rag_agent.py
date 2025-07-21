@@ -14,11 +14,11 @@ from langchain_core.retrievers import BaseRetriever
 from langchain.retrievers import BM25Retriever
 from langchain.prompts import PromptTemplate
 
-# 🔐 Настройка OpenAI ключей
+# Настройка OpenAI ключей
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 openai.organization = st.secrets.get("OPENAI_ORG_ID")  # опционально
 
-# 📄 Загрузка и подготовка данных
+# Загрузка и подготовка данных
 df = pd.read_csv("meeting_summaries.csv").dropna(subset=["Сводка"])
 df["metadata"] = df.apply(lambda row: {
     "doc_id": str(row["Документ"]),
@@ -33,24 +33,24 @@ df["text"] = (
 
 docs = [Document(page_content=row["text"], metadata=row["metadata"]) for _, row in df.iterrows()]
 
-# ✂️ Сплиттер токенов
+# Сплиттер токенов
 splitter = TokenTextSplitter(chunk_size=400, chunk_overlap=40)
 split_docs = splitter.split_documents(docs)
 
-# 🔍 Эмбеддинги
+# Эмбеддинги
 embeddings = OpenAIEmbeddings(
     model="text-embedding-3-small",
     openai_api_key=st.secrets["OPENAI_API_KEY"]
 )
 
-# 📚 Векторный поиск
+# Векторный поиск
 vectorstore = DocArrayInMemorySearch.from_documents(split_docs, embeddings)
 
-# 🔎 BM25
+# BM25
 bm25_retriever = BM25Retriever.from_documents(split_docs)
 bm25_retriever.k = 4
 
-# 🔁 Гибридный ретривер
+# Гибридный ретривер
 def hybrid_retrieve(query: str, vectorstore, bm25_retriever, k=4):
     vector_docs = vectorstore.similarity_search(query, k=k)
     bm25_docs = bm25_retriever.get_relevant_documents(query)
@@ -64,7 +64,7 @@ def hybrid_retrieve(query: str, vectorstore, bm25_retriever, k=4):
 
     return list(unique.values())[:k]
 
-# 📆 Извлечение даты и номера документа
+# Извлечение даты и номера документа
 def extract_date_and_doc_id(query: str):
     date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})", query)
     doc_match = re.search(r"(документ|встреча)\s*№?\s*(\d+)", query.lower())
@@ -72,7 +72,7 @@ def extract_date_and_doc_id(query: str):
     doc_id = doc_match.group(2) if doc_match else None
     return date, doc_id
 
-# 🧠 Кастомный ретривер с фильтрацией по метаданным
+# Кастомный ретривер с фильтрацией по метаданным
 class CustomRetriever(BaseRetriever):
     def get_relevant_documents(self, query: str):
         date, doc_id = extract_date_and_doc_id(query)
@@ -85,7 +85,7 @@ class CustomRetriever(BaseRetriever):
                 and (not doc_id or doc.metadata.get("doc_id") == doc_id)
             ]
             if not filtered_docs:
-                print("⚠️ Нет совпадений по метаданным, используем весь корпус.")
+                print("(!) Нет совпадений по метаданным, используем весь корпус.")
                 filtered_docs = split_docs
 
             temp_vectorstore = DocArrayInMemorySearch.from_documents(filtered_docs, embeddings)
@@ -96,7 +96,7 @@ class CustomRetriever(BaseRetriever):
 
         return hybrid_retrieve(query, vectorstore, bm25_retriever, k=4)
 
-# 📜 Промпт для цепочки
+# Промпт для цепочки
 QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
     template="""
@@ -114,7 +114,7 @@ QA_PROMPT = PromptTemplate(
 """
 )
 
-# 🔧 Сборка цепочки RAG
+# Сборка цепочки RAG
 def build_rag_chain():
     llm = ChatOpenAI(
         model_name="gpt-4",
