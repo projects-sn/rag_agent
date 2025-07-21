@@ -1,4 +1,4 @@
-from langchain.vectorstores import FAISS
+from langchain.vectorstores import DocArrayInMemorySearch
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import TokenTextSplitter
 from langchain.document_loaders import DataFrameLoader
@@ -30,7 +30,7 @@ df["text"] = (
 
 docs = [Document(page_content=row["text"], metadata=row["metadata"]) for _, row in df.iterrows()]
 
-# Токенизированный сплиттер
+# Сплиттер токенов
 splitter = TokenTextSplitter(chunk_size=400, chunk_overlap=40)
 split_docs = splitter.split_documents(docs)
 
@@ -40,18 +40,19 @@ embeddings = OpenAIEmbeddings(
     model="text-embedding-3-small"
 )
 
-# FAISS и BM25
-faiss_vectorstore = FAISS.from_documents(split_docs, embeddings)
+# Векторный поиск через DocArray
+vectorstore = DocArrayInMemorySearch.from_documents(split_docs, embeddings)
+
+# BM25
 bm25_retriever = BM25Retriever.from_documents(split_docs)
 bm25_retriever.k = 4
 
-
-# Объединённый поиск (FAISS + BM25)
-def hybrid_retrieve(query: str, faiss_store, bm25_retriever, k=4):
-    faiss_docs = faiss_store.similarity_search(query, k=k)
+# Гибридный ретривер
+def hybrid_retrieve(query: str, vectorstore, bm25_retriever, k=4):
+    vector_docs = vectorstore.similarity_search(query, k=k)
     bm25_docs = bm25_retriever.get_relevant_documents(query)
 
-    all_docs = faiss_docs + bm25_docs
+    all_docs = vector_docs + bm25_docs
     unique = {}
     for doc in all_docs:
         key = doc.page_content[:200]
@@ -60,7 +61,7 @@ def hybrid_retrieve(query: str, faiss_store, bm25_retriever, k=4):
 
     return list(unique.values())[:k]
 
-# Дополнительная фильтрация
+# Извлечение даты/номера из запроса
 def extract_date_and_doc_id(query: str):
     date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})", query)
     doc_match = re.search(r"(документ|встреча)\s*№?\s*(\d+)", query.lower())
@@ -68,8 +69,7 @@ def extract_date_and_doc_id(query: str):
     doc_id = doc_match.group(2) if doc_match else None
     return date, doc_id
 
-
-# Кастомный ретривер с фильтрацией и ручным гибридом
+# Кастомный ретривер с фильтрацией
 class CustomRetriever(BaseRetriever):
     def get_relevant_documents(self, query: str):
         date, doc_id = extract_date_and_doc_id(query)
@@ -82,32 +82,32 @@ class CustomRetriever(BaseRetriever):
                 and (not doc_id or doc.metadata.get("doc_id") == doc_id)
             ]
             if not filtered_docs:
-                print("⚠️ Нет точных совпадений по метаданным, используем весь корпус.")
+                print("⚠️ Нет совпадений по метаданным, используем весь корпус.")
                 filtered_docs = split_docs
 
-            temp_faiss = FAISS.from_documents(filtered_docs, embeddings)
+            temp_vectorstore = DocArrayInMemorySearch.from_documents(filtered_docs, embeddings)
             temp_bm25 = BM25Retriever.from_documents(filtered_docs)
             temp_bm25.k = 4
 
-            return hybrid_retrieve(query, temp_faiss, temp_bm25, k=4)
+            return hybrid_retrieve(query, temp_vectorstore, temp_bm25, k=4)
 
-        return hybrid_retrieve(query, faiss_vectorstore, bm25_retriever, k=4)
+        return hybrid_retrieve(query, vectorstore, bm25_retriever, k=4)
 
 QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
     template="""
-        Ты — помощник, анализирующий стенограммы встреч.
-        Ответь **полно и развёрнуто**, используя релевантную информацию из встреч, переданную в контексте.
-        Отвечай детально и развернуто, упоминай источники и ответственных людей.
+                Ты — помощник, анализирующий стенограммы встреч.
+                Ответь **полно и развёрнуто**, используя релевантную информацию из встреч, переданную в контексте.
+                Отвечай детально и развернуто, упоминай источники и ответственных людей.
 
-        Контекст:
-        {context}
+                Контекст:
+                {context}
 
-        Вопрос:
-        {question}
+                Вопрос:
+                {question}
 
-        Ответ:
-        """
+                Ответ:
+                """
 )
 
 def build_rag_chain():
@@ -125,5 +125,5 @@ def build_rag_chain():
         retriever=retriever,
         chain_type="stuff",
         chain_type_kwargs={"prompt": QA_PROMPT},
-        return_source_documents=True  # для показа источников
+        return_source_documents=True
     )
