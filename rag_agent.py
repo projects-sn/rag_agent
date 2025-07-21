@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 import re
 
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 
 df = pd.read_csv("meeting_summaries.csv").dropna(subset=["Сводка"])
 
