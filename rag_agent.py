@@ -45,7 +45,8 @@ splitter = TokenTextSplitter(chunk_size=400, chunk_overlap=40)
 split_docs = splitter.split_documents(docs)
 
 # Индексация
-vectorstore = DocArrayInMemorySearch.from_documents(split_docs, embeddings)
+vectorstore = DocArrayInMemorySearch.from_documents(documents=split_docs, embedding=embeddings)
+
 
 # BM25
 bm25_retriever = BM25Retriever.from_documents(split_docs)
@@ -89,7 +90,7 @@ class CustomRetriever(BaseRetriever):
                 print("⚠️ Нет совпадений по метаданным, используем весь корпус.")
                 filtered_docs = split_docs
 
-            temp_vectorstore = DocArrayInMemorySearch.from_documents(filtered_docs, embeddings)
+            temp_vectorstore = DocArrayInMemorySearch.from_documents(documents=filtered_docs, embedding=embeddings)
             temp_bm25 = BM25Retriever.from_documents(filtered_docs)
             temp_bm25.k = 4
 
