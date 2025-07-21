@@ -1,5 +1,10 @@
-from langchain.vectorstores import DocArrayInMemorySearch
-from langchain.embeddings import OpenAIEmbeddings
+import re
+import pandas as pd
+import streamlit as st
+import openai
+
+from langchain_community.vectorstores import DocArrayInMemorySearch
+from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import TokenTextSplitter
 from langchain.document_loaders import DataFrameLoader
 from langchain.chat_models import ChatOpenAI
@@ -9,14 +14,19 @@ from langchain_core.retrievers import BaseRetriever
 from langchain.retrievers import BM25Retriever
 from langchain.prompts import PromptTemplate
 
-import pandas as pd
-import streamlit as st
-import re
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+openai.organization = st.secrets.get("OPENAI_ORG_ID")
+openai.project = st.secrets.get("OPENAI_PROJECT_ID")
 
-OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+# Эмбеддинги
+embeddings = OpenAIEmbeddings(
+    model="text-embedding-3-small",
+    openai_api_key=st.secrets["OPENAI_API_KEY"],
+    organization=st.secrets.get("OPENAI_ORG_ID"),
+    project=st.secrets.get("OPENAI_PROJECT_ID"),
+)
 
 df = pd.read_csv("meeting_summaries.csv").dropna(subset=["Сводка"])
-
 df["metadata"] = df.apply(lambda row: {
     "doc_id": str(row["Документ"]),
     "date": str(row["Дата"])
@@ -30,24 +40,18 @@ df["text"] = (
 
 docs = [Document(page_content=row["text"], metadata=row["metadata"]) for _, row in df.iterrows()]
 
-# Сплиттер токенов
+# Сплит на чанки
 splitter = TokenTextSplitter(chunk_size=400, chunk_overlap=40)
 split_docs = splitter.split_documents(docs)
 
-# Эмбеддинги
-embeddings = OpenAIEmbeddings(
-    openai_api_key=OPENAI_API_KEY,
-    model="text-embedding-3-small"
-)
-
-# Векторный поиск через DocArray
+# Индексация
 vectorstore = DocArrayInMemorySearch.from_documents(split_docs, embeddings)
 
 # BM25
 bm25_retriever = BM25Retriever.from_documents(split_docs)
 bm25_retriever.k = 4
 
-# Гибридный ретривер
+# Гибридный поиск
 def hybrid_retrieve(query: str, vectorstore, bm25_retriever, k=4):
     vector_docs = vectorstore.similarity_search(query, k=k)
     bm25_docs = bm25_retriever.get_relevant_documents(query)
@@ -61,7 +65,7 @@ def hybrid_retrieve(query: str, vectorstore, bm25_retriever, k=4):
 
     return list(unique.values())[:k]
 
-# Извлечение даты/номера из запроса
+# Парсинг даты и номера документа
 def extract_date_and_doc_id(query: str):
     date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})", query)
     doc_match = re.search(r"(документ|встреча)\s*№?\s*(\d+)", query.lower())
@@ -69,7 +73,7 @@ def extract_date_and_doc_id(query: str):
     doc_id = doc_match.group(2) if doc_match else None
     return date, doc_id
 
-# Кастомный ретривер с фильтрацией
+# Кастомный ретривер с фильтрацией по метаданным
 class CustomRetriever(BaseRetriever):
     def get_relevant_documents(self, query: str):
         date, doc_id = extract_date_and_doc_id(query)
@@ -93,29 +97,32 @@ class CustomRetriever(BaseRetriever):
 
         return hybrid_retrieve(query, vectorstore, bm25_retriever, k=4)
 
+# Промпт
 QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
     template="""
-                Ты — помощник, анализирующий стенограммы встреч.
-                Ответь **полно и развёрнуто**, используя релевантную информацию из встреч, переданную в контексте.
-                Отвечай детально и развернуто, упоминай источники и ответственных людей.
+    Ты — помощник, анализирующий стенограммы встреч.
+    Ответь **полно и развёрнуто**, используя релевантную информацию из встреч, переданную в контексте.
+    Отвечай детально и развернуто, упоминай источники и ответственных людей.
 
-                Контекст:
-                {context}
+    Контекст:
+    {context}
 
-                Вопрос:
-                {question}
+    Вопрос:
+    {question}
 
-                Ответ:
-                """
+    Ответ:
+    """
 )
 
 def build_rag_chain():
     llm = ChatOpenAI(
-        openai_api_key=OPENAI_API_KEY,
-        temperature=0.2,
         model_name="gpt-4",
-        max_tokens=2048
+        temperature=0.2,
+        max_tokens=2048,
+        openai_api_key=st.secrets["OPENAI_API_KEY"],
+        organization=st.secrets.get("OPENAI_ORG_ID"),
+        project=st.secrets.get("OPENAI_PROJECT_ID"),
     )
 
     retriever = CustomRetriever()
