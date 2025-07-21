@@ -1,5 +1,3 @@
-# app.py
-
 import streamlit as st
 from rag_agent import build_rag_chain
 
