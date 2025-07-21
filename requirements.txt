@@ -1,5 +1,8 @@
-streamlit
+langchain
+langchain-community
+langchain-openai
 openai
+docarray
+streamlit
 pandas
-langchain>=0.0.163,<1.0
-tqdm
+rank_bm25
