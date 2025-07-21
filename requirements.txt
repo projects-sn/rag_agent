@@ -1,6 +1,5 @@
 streamlit
 openai
 pandas
-faiss-cpu==1.7.4
 langchain>=0.0.163,<1.0
 tqdm
